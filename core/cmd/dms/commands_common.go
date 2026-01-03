@@ -171,7 +171,6 @@ var pluginsUpdateCmd = &cobra.Command{
 }
 
 func runVersion(cmd *cobra.Command, args []string) {
-	printASCII()
 	fmt.Printf("%s\n", formatVersion(Version))
 }
 

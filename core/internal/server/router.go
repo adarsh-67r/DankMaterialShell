@@ -18,6 +18,7 @@ import (
 	"github.com/AvengeMedia/DankMaterialShell/core/internal/server/models"
 	"github.com/AvengeMedia/DankMaterialShell/core/internal/server/network"
 	serverPlugins "github.com/AvengeMedia/DankMaterialShell/core/internal/server/plugins"
+	serverThemes "github.com/AvengeMedia/DankMaterialShell/core/internal/server/themes"
 	"github.com/AvengeMedia/DankMaterialShell/core/internal/server/wayland"
 	"github.com/AvengeMedia/DankMaterialShell/core/internal/server/wlroutput"
 )
@@ -34,6 +35,11 @@ func RouteRequest(conn net.Conn, req models.Request) {
 
 	if strings.HasPrefix(req.Method, "plugins.") {
 		serverPlugins.HandleRequest(conn, req)
+		return
+	}
+
+	if strings.HasPrefix(req.Method, "themes.") {
+		serverThemes.HandleRequest(conn, req)
 		return
 	}
 
@@ -186,26 +192,20 @@ func RouteRequest(conn net.Conn, req models.Request) {
 func handleClipboardSetConfig(conn net.Conn, req models.Request) {
 	cfg := clipboard.LoadConfig()
 
-	if v, ok := req.Params["maxHistory"].(float64); ok {
+	if v, ok := models.Get[float64](req, "maxHistory"); ok {
 		cfg.MaxHistory = int(v)
 	}
-	if v, ok := req.Params["maxEntrySize"].(float64); ok {
+	if v, ok := models.Get[float64](req, "maxEntrySize"); ok {
 		cfg.MaxEntrySize = int64(v)
 	}
-	if v, ok := req.Params["autoClearDays"].(float64); ok {
+	if v, ok := models.Get[float64](req, "autoClearDays"); ok {
 		cfg.AutoClearDays = int(v)
 	}
-	if v, ok := req.Params["clearAtStartup"].(bool); ok {
+	if v, ok := models.Get[bool](req, "clearAtStartup"); ok {
 		cfg.ClearAtStartup = v
 	}
-	if v, ok := req.Params["disabled"].(bool); ok {
+	if v, ok := models.Get[bool](req, "disabled"); ok {
 		cfg.Disabled = v
-	}
-	if v, ok := req.Params["disableHistory"].(bool); ok {
-		cfg.DisableHistory = v
-	}
-	if v, ok := req.Params["disablePersist"].(bool); ok {
-		cfg.DisablePersist = v
 	}
 
 	if err := clipboard.SaveConfig(cfg); err != nil {

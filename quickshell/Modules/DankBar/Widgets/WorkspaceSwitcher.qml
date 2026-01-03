@@ -241,7 +241,7 @@ Item {
             }
 
             const keyBase = (w.app_id || w.appId || w.class || w.windowClass || "unknown");
-            const key = isActiveWs ? `${keyBase}_${i}` : keyBase;
+            const key = isActiveWs || !SettingsData.groupWorkspaceApps ? `${keyBase}_${i}` : keyBase;
 
             if (!byApp[key]) {
                 const moddedId = Paths.moddedAppId(keyBase);
@@ -565,6 +565,17 @@ Item {
         if (isPlaceholder)
             return index + 1;
 
+        if (SettingsData.showWorkspaceName) {
+            let workspaceName = modelData?.name;
+
+            if (workspaceName && workspaceName !== "") {
+                if (root.isVertical) {
+                    return workspaceName.charAt(0);
+                }
+                return workspaceName;
+            }
+        }
+
         if (root.useExtWorkspace)
             return index + 1;
         if (CompositorService.isHyprland)
@@ -649,8 +660,8 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
 
-        property real scrollAccumulator: 0
-        property real touchpadThreshold: 500
+        property real touchpadAccumulator: 0
+        property real mouseAccumulator: 0
         property bool scrollInProgress: false
 
         Timer {
@@ -674,23 +685,29 @@ Item {
                 return;
 
             const delta = wheel.angleDelta.y;
-            const isMouseWheel = Math.abs(delta) >= 120 && (Math.abs(delta) % 120) === 0;
-            const direction = delta < 0 ? 1 : -1;
+            const isTouchpad = wheel.pixelDelta && wheel.pixelDelta.y !== 0;
+            const reverse = SettingsData.reverseScrolling ? -1 : 1;
 
-            if (isMouseWheel) {
+            if (isTouchpad) {
+                touchpadAccumulator += delta;
+                if (Math.abs(touchpadAccumulator) < 500)
+                    return;
+                const direction = touchpadAccumulator * reverse < 0 ? 1 : -1;
                 root.switchWorkspace(direction);
                 scrollInProgress = true;
                 scrollCooldown.restart();
-            } else {
-                scrollAccumulator += delta;
-                if (Math.abs(scrollAccumulator) >= touchpadThreshold) {
-                    const touchDirection = scrollAccumulator < 0 ? 1 : -1;
-                    root.switchWorkspace(touchDirection);
-                    scrollInProgress = true;
-                    scrollCooldown.restart();
-                    scrollAccumulator = 0;
-                }
+                touchpadAccumulator = 0;
+                return;
             }
+
+            mouseAccumulator += delta;
+            if (Math.abs(mouseAccumulator) < 120)
+                return;
+            const direction = mouseAccumulator * reverse < 0 ? 1 : -1;
+            root.switchWorkspace(direction);
+            scrollInProgress = true;
+            scrollCooldown.restart();
+            mouseAccumulator = 0;
         }
     }
 
@@ -881,7 +898,7 @@ Item {
                     height: delegateRoot.visualHeight
                     anchors.centerIn: parent
                     radius: Theme.cornerRadius
-                    color: isActive ? Theme.primary : isUrgent ? Theme.error : isPlaceholder ? Theme.surfaceTextLight : isHovered ? Theme.outlineButton : Theme.surfaceTextAlpha
+                    color: isActive ? Theme.primary : isUrgent ? Theme.error : isPlaceholder ? Theme.surfaceTextLight : isHovered ? Theme.withAlpha(Theme.surfaceText, 0.45) : Theme.surfaceTextAlpha
 
                     border.width: isUrgent ? 2 : 0
                     border.color: isUrgent ? Theme.error : Theme.withAlpha(Theme.error, 0)
@@ -936,7 +953,7 @@ Item {
                                 id: rowLayout
                                 Row {
                                     spacing: 4
-                                    visible: loadedIcons.length > 0 || SettingsData.showWorkspaceIndex || loadedHasIcon
+                                    visible: loadedIcons.length > 0 || SettingsData.showWorkspaceIndex || SettingsData.showWorkspaceName || loadedHasIcon
 
                                     Item {
                                         visible: loadedHasIcon && loadedIconData?.type === "icon"
@@ -969,7 +986,7 @@ Item {
                                     }
 
                                     Item {
-                                        visible: SettingsData.showWorkspaceIndex && !loadedHasIcon
+                                        visible: (SettingsData.showWorkspaceIndex || SettingsData.showWorkspaceName) && !loadedHasIcon
                                         width: wsIndexText.implicitWidth + (isActive && loadedIcons.length > 0 ? 4 : 0)
                                         height: root.appIconSize
 
@@ -1066,7 +1083,7 @@ Item {
                                 id: columnLayout
                                 Column {
                                     spacing: 4
-                                    visible: loadedIcons.length > 0 || loadedHasIcon
+                                    visible: loadedIcons.length > 0 || SettingsData.showWorkspaceIndex || SettingsData.showWorkspaceName || loadedHasIcon
 
                                     DankIcon {
                                         visible: loadedHasIcon && loadedIconData?.type === "icon"
@@ -1203,7 +1220,7 @@ Item {
                     Loader {
                         id: indexLoader
                         anchors.fill: parent
-                        active: SettingsData.showWorkspaceIndex && !loadedHasIcon && !SettingsData.showWorkspaceApps
+                        active: (SettingsData.showWorkspaceIndex || SettingsData.showWorkspaceName) && !loadedHasIcon && !SettingsData.showWorkspaceApps
                         sourceComponent: Item {
                             StyledText {
                                 anchors.centerIn: parent

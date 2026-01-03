@@ -7,7 +7,9 @@ function percentToUnit(v) {
 
 var SPEC = {
     currentThemeName: { def: "blue", onChange: "applyStoredTheme" },
+    currentThemeCategory: { def: "generic" },
     customThemeFile: { def: "" },
+    registryThemeVariants: { def: {} },
     matugenScheme: { def: "scheme-tonal-spot", onChange: "regenSystemThemes" },
     runUserMatugenTemplates: { def: true, onChange: "regenSystemThemes" },
     matugenTargetMonitor: { def: "", onChange: "regenSystemThemes" },
@@ -18,6 +20,8 @@ var SPEC = {
     widgetBackgroundColor: { def: "sch" },
     widgetColorMode: { def: "default" },
     cornerRadius: { def: 12, onChange: "updateNiriLayout" },
+    niriLayoutGapsOverride: { def: -1, onChange: "updateNiriLayout" },
+    niriLayoutRadiusOverride: { def: -1, onChange: "updateNiriLayout" },
 
     use24HourClock: { def: true },
     showSeconds: { def: false },
@@ -51,9 +55,12 @@ var SPEC = {
     controlCenterShowNetworkIcon: { def: true },
     controlCenterShowBluetoothIcon: { def: true },
     controlCenterShowAudioIcon: { def: true },
+    controlCenterShowAudioPercent: { def: false },
     controlCenterShowVpnIcon: { def: true },
     controlCenterShowBrightnessIcon: { def: false },
+    controlCenterShowBrightnessPercent: { def: false },
     controlCenterShowMicIcon: { def: false },
+    controlCenterShowMicPercent: { def: false },
     controlCenterShowBatteryIcon: { def: false },
     controlCenterShowPrinterIcon: { def: false },
 
@@ -74,17 +81,21 @@ var SPEC = {
     ]},
 
     showWorkspaceIndex: { def: false },
+    showWorkspaceName: { def: false },
     showWorkspacePadding: { def: false },
     workspaceScrolling: { def: false },
     showWorkspaceApps: { def: false },
     maxWorkspaceIcons: { def: 3 },
+    groupWorkspaceApps: { def: true },
     workspacesPerMonitor: { def: true },
     showOccupiedWorkspacesOnly: { def: false },
+    reverseScrolling: { def: false },
     dwlShowAllTags: { def: false },
     workspaceNameIcons: { def: {} },
     waveProgressEnabled: { def: true },
     scrollTitleEnabled: { def: true },
     audioVisualizerEnabled: { def: true },
+    audioScrollMode: { def: "volume" },
     clockCompactMode: { def: false },
     focusedWindowCompactMode: { def: false },
     runningAppsCompactMode: { def: true },
@@ -103,8 +114,6 @@ var SPEC = {
     spotlightCloseNiriOverview: { def: true },
     niriOverviewOverlayEnabled: { def: true },
 
-    weatherLocation: { def: "New York, NY" },
-    weatherCoordinates: { def: "40.7128,-74.0060" },
     useAutoLocation: { def: false },
     weatherEnabled: { def: true },
 
@@ -154,6 +163,7 @@ var SPEC = {
     batterySuspendTimeout: { def: 0 },
     batterySuspendBehavior: { def: 0 },
     batteryProfileName: { def: "" },
+    batteryChargeLimit: { def: 100 },
     lockBeforeSuspend: { def: false },
     loginctlLockIntegration: { def: true },
     fadeToLockEnabled: { def: false },
@@ -177,11 +187,14 @@ var SPEC = {
     matugenTemplateQt6ct: { def: true },
     matugenTemplateFirefox: { def: true },
     matugenTemplatePywalfox: { def: true },
+    matugenTemplateZenBrowser: { def: true },
     matugenTemplateVesktop: { def: true },
+    matugenTemplateEquibop: { def: true },
     matugenTemplateGhostty: { def: true },
     matugenTemplateKitty: { def: true },
     matugenTemplateFoot: { def: true },
     matugenTemplateAlacritty: { def: true },
+    matugenTemplateNeovim: { def: true },
     matugenTemplateWezterm: { def: true },
     matugenTemplateDgop: { def: true },
     matugenTemplateKcolorscheme: { def: true },
@@ -201,6 +214,7 @@ var SPEC = {
     dockBorderColor: { def: "surfaceText" },
     dockBorderOpacity: { def: 1.0, coerce: percentToUnit },
     dockBorderThickness: { def: 1 },
+    dockIsolateDisplays: { def: false },
 
     notificationOverlayEnabled: { def: false },
     overviewRows: { def: 2, persist: false },
@@ -292,6 +306,7 @@ var SPEC = {
         fontScale: 1.0,
         autoHide: false,
         autoHideDelay: 250,
+        showOnWindowsOpen: false,
         openOnOverview: false,
         visible: true,
         popupGapsAuto: true,
@@ -309,6 +324,7 @@ var SPEC = {
     desktopClockCustomColor: { def: "#ffffff" },
     desktopClockShowDate: { def: true },
     desktopClockShowAnalogNumbers: { def: false },
+    desktopClockShowAnalogSeconds: { def: true },
     desktopClockX: { def: -1 },
     desktopClockY: { def: -1 },
     desktopClockWidth: { def: 280 },
@@ -334,13 +350,17 @@ var SPEC = {
     systemMonitorTopProcessCount: { def: 3 },
     systemMonitorTopProcessSortBy: { def: "cpu" },
     systemMonitorGraphInterval: { def: 60 },
+    systemMonitorLayoutMode: { def: "auto" },
     systemMonitorX: { def: -1 },
     systemMonitorY: { def: -1 },
     systemMonitorWidth: { def: 320 },
     systemMonitorHeight: { def: 480 },
     systemMonitorDisplayPreferences: { def: ["all"] },
     systemMonitorVariants: { def: [] },
-    desktopWidgetPositions: { def: {} }
+    desktopWidgetPositions: { def: {} },
+    desktopWidgetGridSettings: { def: {} },
+
+    desktopWidgetInstances: { def: [] }
 };
 
 function getValidKeys() {

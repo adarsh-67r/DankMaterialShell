@@ -166,6 +166,9 @@ DankPopout {
         Rectangle {
             id: mainContainer
 
+            LayoutMirroring.enabled: I18n.isRtl
+            LayoutMirroring.childrenInherit: true
+
             implicitHeight: contentColumn.height + Theme.spacingM * 2
             color: "transparent"
             radius: Theme.cornerRadius
@@ -335,13 +338,11 @@ DankPopout {
                                 onCloseDash: root.dashVisible = false
                                 onSwitchToWeatherTab: {
                                     if (SettingsData.weatherEnabled) {
-                                        tabBar.currentIndex = 3;
-                                        tabBar.tabClicked(3);
+                                        root.currentTabIndex = 3;
                                     }
                                 }
                                 onSwitchToMediaTab: {
-                                    tabBar.currentIndex = 1;
-                                    tabBar.tabClicked(1);
+                                    root.currentTabIndex = 1;
                                 }
                             }
                         }

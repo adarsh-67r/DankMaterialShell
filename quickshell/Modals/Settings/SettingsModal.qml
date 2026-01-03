@@ -78,9 +78,7 @@ FloatingWindow {
             closingModal();
         } else {
             Qt.callLater(() => {
-                if (contentFocusScope) {
-                    contentFocusScope.forceActiveFocus();
-                }
+                sidebar.focusSearch();
             });
         }
     }
@@ -135,21 +133,11 @@ FloatingWindow {
     FocusScope {
         id: contentFocusScope
 
+        LayoutMirroring.enabled: I18n.isRtl
+        LayoutMirroring.childrenInherit: true
+
         anchors.fill: parent
         focus: true
-
-        Keys.onPressed: event => {
-            if (event.key === Qt.Key_Down || (event.key === Qt.Key_Tab && !event.modifiers)) {
-                sidebar.navigateNext();
-                event.accepted = true;
-                return;
-            }
-            if (event.key === Qt.Key_Up || event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier)) {
-                sidebar.navigatePrevious();
-                event.accepted = true;
-                return;
-            }
-        }
 
         Column {
             anchors.fill: parent
@@ -159,6 +147,12 @@ FloatingWindow {
                 width: parent.width
                 height: 48
                 z: 10
+
+                MouseArea {
+                    anchors.fill: parent
+                    onPressed: windowControls.tryStartMove()
+                    onDoubleClicked: windowControls.tryToggleMaximize()
+                }
 
                 Rectangle {
                     anchors.fill: parent
@@ -200,30 +194,123 @@ FloatingWindow {
                     }
                 }
 
-                DankActionButton {
+                Row {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.spacingM
                     anchors.top: parent.top
                     anchors.topMargin: Theme.spacingM
-                    circular: false
-                    iconName: "close"
-                    iconSize: Theme.iconSize - 4
-                    iconColor: Theme.surfaceText
-                    onClicked: () => {
-                        settingsModal.hide();
+                    spacing: Theme.spacingXS
+
+                    DankActionButton {
+                        visible: windowControls.supported
+                        circular: false
+                        iconName: settingsModal.maximized ? "fullscreen_exit" : "fullscreen"
+                        iconSize: Theme.iconSize - 4
+                        iconColor: Theme.surfaceText
+                        onClicked: windowControls.tryToggleMaximize()
+                    }
+
+                    DankActionButton {
+                        circular: false
+                        iconName: "close"
+                        iconSize: Theme.iconSize - 4
+                        iconColor: Theme.surfaceText
+                        onClicked: settingsModal.hide()
+                    }
+                }
+            }
+
+            Rectangle {
+                id: readOnlyBanner
+
+                property bool showBanner: (SettingsData._isReadOnly && SettingsData._hasUnsavedChanges) || (SessionData._isReadOnly && SessionData._hasUnsavedChanges)
+
+                width: parent.width
+                height: showBanner ? bannerContent.implicitHeight + Theme.spacingM * 2 : 0
+                color: Theme.surfaceContainerHigh
+                visible: showBanner
+                clip: true
+
+                Behavior on height {
+                    NumberAnimation {
+                        duration: Theme.shortDuration
+                        easing.type: Theme.standardEasing
+                    }
+                }
+
+                Row {
+                    id: bannerContent
+
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacingL
+                    anchors.rightMargin: Theme.spacingM
+                    spacing: Theme.spacingM
+
+                    DankIcon {
+                        name: "info"
+                        size: Theme.iconSize
+                        color: Theme.warning
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    StyledText {
+                        id: bannerText
+
+                        text: I18n.tr("Settings are read-only. Changes will not persist.", "read-only settings warning for NixOS home-manager users")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceText
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.max(100, parent.width - (copySettingsButton.visible ? copySettingsButton.width + Theme.spacingM : 0) - (copySessionButton.visible ? copySessionButton.width + Theme.spacingM : 0) - Theme.spacingM * 2 - Theme.iconSize)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    DankButton {
+                        id: copySettingsButton
+
+                        visible: SettingsData._isReadOnly && SettingsData._hasUnsavedChanges
+                        text: "settings.json"
+                        iconName: "content_copy"
+                        backgroundColor: Theme.primary
+                        textColor: Theme.primaryText
+                        buttonHeight: 32
+                        horizontalPadding: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
+                        onClicked: {
+                            Quickshell.execDetached(["dms", "cl", "copy", SettingsData.getCurrentSettingsJson()]);
+                            ToastService.showInfo(I18n.tr("Copied to clipboard"));
+                        }
+                    }
+
+                    DankButton {
+                        id: copySessionButton
+
+                        visible: SessionData._isReadOnly && SessionData._hasUnsavedChanges
+                        text: "session.json"
+                        iconName: "content_copy"
+                        backgroundColor: Theme.primary
+                        textColor: Theme.primaryText
+                        buttonHeight: 32
+                        horizontalPadding: Theme.spacingM
+                        anchors.verticalCenter: parent.verticalCenter
+                        onClicked: {
+                            Quickshell.execDetached(["dms", "cl", "copy", SessionData.getCurrentSessionJson()]);
+                            ToastService.showInfo(I18n.tr("Copied to clipboard"));
+                        }
                     }
                 }
             }
 
             Item {
                 width: parent.width
-                height: parent.height - 48
+                height: parent.height - 48 - readOnlyBanner.height
                 clip: true
 
                 SettingsSidebar {
                     id: sidebar
 
-                    x: 0
+                    anchors.left: parent.left
                     width: settingsModal.isCompactMode ? parent.width : 270
                     visible: settingsModal.isCompactMode ? settingsModal.menuVisible : true
                     parentModal: settingsModal
@@ -238,8 +325,8 @@ FloatingWindow {
                 }
 
                 Item {
-                    x: settingsModal.isCompactMode ? (settingsModal.menuVisible ? parent.width : 0) : sidebar.width
-                    width: settingsModal.isCompactMode ? parent.width : parent.width - sidebar.width
+                    anchors.left: settingsModal.isCompactMode ? (settingsModal.menuVisible ? sidebar.right : parent.left) : sidebar.right
+                    anchors.right: parent.right
                     height: parent.height
                     clip: true
 
@@ -250,16 +337,13 @@ FloatingWindow {
                         parentModal: settingsModal
                         currentIndex: settingsModal.currentTabIndex
                     }
-
-                    Behavior on x {
-                        enabled: settingsModal.enableAnimations
-                        NumberAnimation {
-                            duration: Theme.mediumDuration
-                            easing.bezierCurve: Theme.expressiveCurves.emphasizedDecel
-                        }
-                    }
                 }
             }
         }
+    }
+
+    FloatingWindowControls {
+        id: windowControls
+        targetWindow: settingsModal
     }
 }

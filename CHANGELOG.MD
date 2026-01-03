@@ -9,3 +9,9 @@ This file is more of a quick reference so I know what to account for before next
 - Add monitor configurator (niri, Hyprland, MangoWC)
 - **BREAKING** ghostty theme changed to ~/.config/ghostty/themes/danktheme
   - requires intervention and doc update
+- Added desktop widget plugins
+  - dev guidance available
+  - builtin clock & dgop widgets
+  - new IPC targets
+- Initial RTL support/i18n
+- Theme registry

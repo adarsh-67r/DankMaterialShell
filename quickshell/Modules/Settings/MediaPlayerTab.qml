@@ -14,6 +14,7 @@ Item {
 
         Column {
             id: mainColumn
+            topPadding: 4
             width: Math.min(550, parent.width - Theme.spacingL * 2)
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Theme.spacingXL
@@ -22,6 +23,7 @@ Item {
                 width: parent.width
                 iconName: "music_note"
                 title: I18n.tr("Media Player Settings")
+                settingKey: "mediaPlayer"
 
                 SettingsToggleRow {
                     text: I18n.tr("Wave Progress Bars")
@@ -42,6 +44,26 @@ Item {
                     description: I18n.tr("Show cava audio visualizer in media widget")
                     checked: SettingsData.audioVisualizerEnabled
                     onToggled: checked => SettingsData.set("audioVisualizerEnabled", checked)
+                }
+
+                SettingsDropdownRow {
+                    property var scrollOpts: {
+                        "Change Volume": "volume",
+                        "Change Song": "song",
+                        "Nothing": "nothing"
+                    }
+
+                    text: I18n.tr("Scroll Wheel")
+                    description: I18n.tr("Scroll wheel behavior on media widget")
+                    settingKey: "audioScrollMode"
+                    tags: ["media", "music", "scroll"]
+                    options: Object.keys(scrollOpts).sort()
+                    currentValue: {
+                        Object.keys(scrollOpts).find(key => scrollOpts[key] === SettingsData.audioScrollMode) ?? "volume"
+                    }
+                    onValueChanged: value => {
+                        SettingsData.set("audioScrollMode", scrollOpts[value])
+                    }
                 }
             }
         }

@@ -18,10 +18,7 @@ type Config struct {
 	MaxEntrySize   int64 `json:"maxEntrySize"`
 	AutoClearDays  int   `json:"autoClearDays"`
 	ClearAtStartup bool  `json:"clearAtStartup"`
-
-	Disabled       bool `json:"disabled"`
-	DisableHistory bool `json:"disableHistory"`
-	DisablePersist bool `json:"disablePersist"`
+	Disabled       bool  `json:"disabled"`
 }
 
 func DefaultConfig() Config {
@@ -30,7 +27,6 @@ func DefaultConfig() Config {
 		MaxEntrySize:   5 * 1024 * 1024,
 		AutoClearDays:  0,
 		ClearAtStartup: false,
-		DisablePersist: true,
 	}
 }
 

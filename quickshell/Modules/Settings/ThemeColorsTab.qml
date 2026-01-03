@@ -10,15 +10,31 @@ import qs.Modules.Settings.Widgets
 Item {
     id: themeColorsTab
 
-    property var cachedIconThemes: []
-    property var cachedMatugenSchemes: []
+    property var cachedIconThemes: SettingsData.availableIconThemes
+    property var cachedMatugenSchemes: Theme.availableMatugenSchemes.map(option => option.label)
+    property var installedRegistryThemes: []
 
     Component.onCompleted: {
         SettingsData.detectAvailableIconThemes();
-        cachedIconThemes = SettingsData.availableIconThemes;
-        cachedMatugenSchemes = Theme.availableMatugenSchemes.map(function (option) {
-            return option.label;
-        });
+        if (DMSService.dmsAvailable)
+            DMSService.listInstalledThemes();
+        if (PopoutService.pendingThemeInstall)
+            Qt.callLater(() => themeBrowser.show());
+    }
+
+    Connections {
+        target: DMSService
+        function onInstalledThemesReceived(themes) {
+            themeColorsTab.installedRegistryThemes = themes;
+        }
+    }
+
+    Connections {
+        target: PopoutService
+        function onPendingThemeInstallChanged() {
+            if (PopoutService.pendingThemeInstall)
+                themeBrowser.show();
+        }
     }
 
     DankFlickable {
@@ -29,6 +45,7 @@ Item {
 
         Column {
             id: mainColumn
+            topPadding: 4
 
             width: Math.min(550, parent.width - Theme.spacingL * 2)
             anchors.horizontalCenter: parent.horizontalCenter
@@ -38,6 +55,7 @@ Item {
                 tab: "theme"
                 tags: ["color", "palette", "theme", "appearance"]
                 title: I18n.tr("Theme Color")
+                settingKey: "themeColor"
                 iconName: "palette"
 
                 Column {
@@ -45,12 +63,22 @@ Item {
                     spacing: Theme.spacingS
 
                     StyledText {
+                        property string registryThemeName: {
+                            if (Theme.currentThemeCategory !== "registry")
+                                return "";
+                            for (var i = 0; i < themeColorsTab.installedRegistryThemes.length; i++) {
+                                var t = themeColorsTab.installedRegistryThemes[i];
+                                if (SettingsData.customThemeFile && SettingsData.customThemeFile.endsWith((t.sourceDir || t.id) + "/theme.json"))
+                                    return t.name;
+                            }
+                            return "";
+                        }
                         text: {
                             if (Theme.currentTheme === Theme.dynamic)
-                                return "Current Theme: Dynamic";
-                            if (Theme.currentThemeCategory === "catppuccin")
-                                return "Current Theme: Catppuccin " + Theme.getThemeColors(Theme.currentThemeName).name;
-                            return "Current Theme: " + Theme.getThemeColors(Theme.currentThemeName).name;
+                                return I18n.tr("Current Theme: %1", "current theme label").arg(I18n.tr("Dynamic", "dynamic theme name"));
+                            if (Theme.currentThemeCategory === "registry" && registryThemeName)
+                                return I18n.tr("Current Theme: %1", "current theme label").arg(registryThemeName);
+                            return I18n.tr("Current Theme: %1", "current theme label").arg(Theme.getThemeColors(Theme.currentThemeName).name);
                         }
                         font.pixelSize: Theme.fontSizeMedium
                         color: Theme.surfaceText
@@ -61,12 +89,12 @@ Item {
                     StyledText {
                         text: {
                             if (Theme.currentTheme === Theme.dynamic)
-                                return "Material colors generated from wallpaper";
-                            if (Theme.currentThemeCategory === "catppuccin")
-                                return "Soothing pastel theme based on Catppuccin";
+                                return I18n.tr("Material colors generated from wallpaper", "dynamic theme description");
+                            if (Theme.currentThemeCategory === "registry")
+                                return I18n.tr("Color theme from DMS registry", "registry theme description");
                             if (Theme.currentTheme === Theme.custom)
-                                return "Custom theme loaded from JSON file";
-                            return "Material Design inspired color themes";
+                                return I18n.tr("Custom theme loaded from JSON file", "custom theme description");
+                            return I18n.tr("Material Design inspired color themes", "generic theme description");
                         }
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText
@@ -78,75 +106,92 @@ Item {
                 }
 
                 Column {
+                    id: themeCategoryColumn
                     spacing: Theme.spacingM
                     anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
 
-                    DankButtonGroup {
-                        property int currentThemeIndex: {
-                            if (Theme.currentTheme === Theme.dynamic)
-                                return 2;
-                            if (Theme.currentThemeName === "custom")
-                                return 3;
-                            if (Theme.currentThemeCategory === "catppuccin")
-                                return 1;
-                            return 0;
-                        }
-                        property int pendingThemeIndex: -1
+                    Item {
+                        width: parent.width
+                        height: themeCategoryGroup.implicitHeight
+                        clip: true
 
-                        model: ["Generic", "Catppuccin", "Auto", "Custom"]
-                        currentIndex: currentThemeIndex
-                        selectionMode: "single"
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        onSelectionChanged: (index, selected) => {
-                            if (!selected)
-                                return;
-                            pendingThemeIndex = index;
-                        }
-                        onAnimationCompleted: {
-                            if (pendingThemeIndex === -1)
-                                return;
-                            switch (pendingThemeIndex) {
-                            case 0:
-                                Theme.switchThemeCategory("generic", "blue");
-                                break;
-                            case 1:
-                                Theme.switchThemeCategory("catppuccin", "cat-mauve");
-                                break;
-                            case 2:
-                                if (ToastService.wallpaperErrorStatus === "matugen_missing")
-                                    ToastService.showError("matugen not found - install matugen package for dynamic theming");
-                                else if (ToastService.wallpaperErrorStatus === "error")
-                                    ToastService.showError("Wallpaper processing failed - check wallpaper path");
-                                else
-                                    Theme.switchTheme(Theme.dynamic, true, true);
-                                break;
-                            case 3:
-                                if (Theme.currentThemeName !== "custom")
-                                    Theme.switchTheme("custom", true, true);
-                                break;
+                        DankButtonGroup {
+                            id: themeCategoryGroup
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            buttonPadding: parent.width < 420 ? Theme.spacingS : Theme.spacingL
+                            minButtonWidth: parent.width < 420 ? 44 : 64
+                            textSize: parent.width < 420 ? Theme.fontSizeSmall : Theme.fontSizeMedium
+                            property bool isRegistryTheme: Theme.currentThemeCategory === "registry"
+                            property int currentThemeIndex: {
+                                if (isRegistryTheme)
+                                    return 3;
+                                if (Theme.currentTheme === Theme.dynamic)
+                                    return 1;
+                                if (Theme.currentThemeName === "custom")
+                                    return 2;
+                                return 0;
                             }
-                            pendingThemeIndex = -1;
+                            property int pendingThemeIndex: -1
+
+                            model: DMSService.dmsAvailable ? ["Generic", "Auto", "Custom", "Browse"] : ["Generic", "Auto", "Custom"]
+                            currentIndex: currentThemeIndex
+                            selectionMode: "single"
+                            onSelectionChanged: (index, selected) => {
+                                if (!selected)
+                                    return;
+                                pendingThemeIndex = index;
+                            }
+                            onAnimationCompleted: {
+                                if (pendingThemeIndex === -1)
+                                    return;
+                                switch (pendingThemeIndex) {
+                                case 0:
+                                    Theme.switchThemeCategory("generic", "blue");
+                                    break;
+                                case 1:
+                                    if (ToastService.wallpaperErrorStatus === "matugen_missing")
+                                        ToastService.showError(I18n.tr("matugen not found - install matugen package for dynamic theming", "matugen error"));
+                                    else if (ToastService.wallpaperErrorStatus === "error")
+                                        ToastService.showError(I18n.tr("Wallpaper processing failed - check wallpaper path", "wallpaper error"));
+                                    else
+                                        Theme.switchThemeCategory("dynamic", Theme.dynamic);
+                                    break;
+                                case 2:
+                                    Theme.switchThemeCategory("custom", "custom");
+                                    break;
+                                case 3:
+                                    Theme.switchThemeCategory("registry", "");
+                                    break;
+                                }
+                                pendingThemeIndex = -1;
+                            }
                         }
                     }
 
-                    Column {
-                        spacing: Theme.spacingS
-                        anchors.horizontalCenter: parent.horizontalCenter
+                    Item {
+                        width: parent.width
+                        height: genericColorGrid.implicitHeight
                         visible: Theme.currentThemeCategory === "generic" && Theme.currentTheme !== Theme.dynamic && Theme.currentThemeName !== "custom"
 
-                        Row {
-                            spacing: Theme.spacingM
+                        Grid {
+                            id: genericColorGrid
+                            property var colorList: ["blue", "purple", "green", "orange", "red", "cyan", "pink", "amber", "coral", "monochrome"]
+                            property int dotSize: parent.width < 300 ? 28 : 32
+                            columns: Math.ceil(colorList.length / 2)
+                            rowSpacing: Theme.spacingS
+                            columnSpacing: Theme.spacingS
                             anchors.horizontalCenter: parent.horizontalCenter
 
                             Repeater {
-                                model: ["blue", "purple", "green", "orange", "red"]
+                                model: genericColorGrid.colorList
 
                                 Rectangle {
                                     required property string modelData
                                     property string themeName: modelData
-                                    width: 32
-                                    height: 32
-                                    radius: 16
+                                    width: genericColorGrid.dotSize
+                                    height: genericColorGrid.dotSize
+                                    radius: width / 2
                                     color: Theme.getThemeColors(themeName).primary
                                     border.color: Theme.outline
                                     border.width: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 2 : 1
@@ -185,205 +230,6 @@ Item {
                                             easing.type: Theme.emphasizedEasing
                                         }
                                     }
-
-                                    Behavior on border.width {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Row {
-                            spacing: Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            Repeater {
-                                model: ["cyan", "pink", "amber", "coral", "monochrome"]
-
-                                Rectangle {
-                                    required property string modelData
-                                    property string themeName: modelData
-                                    width: 32
-                                    height: 32
-                                    radius: 16
-                                    color: Theme.getThemeColors(themeName).primary
-                                    border.color: Theme.outline
-                                    border.width: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 2 : 1
-                                    scale: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 1.1 : 1
-
-                                    Rectangle {
-                                        width: nameText2.contentWidth + Theme.spacingS * 2
-                                        height: nameText2.contentHeight + Theme.spacingXS * 2
-                                        color: Theme.surfaceContainer
-                                        radius: Theme.cornerRadius
-                                        anchors.bottom: parent.top
-                                        anchors.bottomMargin: Theme.spacingXS
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        visible: mouseArea2.containsMouse
-
-                                        StyledText {
-                                            id: nameText2
-                                            text: Theme.getThemeColors(parent.parent.themeName).name
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
-                                            anchors.centerIn: parent
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: mouseArea2
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: Theme.switchTheme(parent.themeName)
-                                    }
-
-                                    Behavior on scale {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-
-                                    Behavior on border.width {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Column {
-                        spacing: Theme.spacingS
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        visible: Theme.currentThemeCategory === "catppuccin" && Theme.currentTheme !== Theme.dynamic && Theme.currentThemeName !== "custom"
-
-                        Row {
-                            spacing: Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            Repeater {
-                                model: ["cat-rosewater", "cat-flamingo", "cat-pink", "cat-mauve", "cat-red", "cat-maroon", "cat-peach"]
-
-                                Rectangle {
-                                    required property string modelData
-                                    property string themeName: modelData
-                                    width: 32
-                                    height: 32
-                                    radius: 16
-                                    color: Theme.getCatppuccinColor(themeName)
-                                    border.color: Theme.outline
-                                    border.width: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 2 : 1
-                                    scale: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 1.1 : 1
-
-                                    Rectangle {
-                                        width: nameTextCat.contentWidth + Theme.spacingS * 2
-                                        height: nameTextCat.contentHeight + Theme.spacingXS * 2
-                                        color: Theme.surfaceContainer
-                                        radius: Theme.cornerRadius
-                                        anchors.bottom: parent.top
-                                        anchors.bottomMargin: Theme.spacingXS
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        visible: mouseAreaCat.containsMouse
-
-                                        StyledText {
-                                            id: nameTextCat
-                                            text: Theme.getCatppuccinVariantName(parent.parent.themeName)
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
-                                            anchors.centerIn: parent
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: mouseAreaCat
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: Theme.switchTheme(parent.themeName)
-                                    }
-
-                                    Behavior on scale {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-
-                                    Behavior on border.width {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Row {
-                            spacing: Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            Repeater {
-                                model: ["cat-yellow", "cat-green", "cat-teal", "cat-sky", "cat-sapphire", "cat-blue", "cat-lavender"]
-
-                                Rectangle {
-                                    required property string modelData
-                                    property string themeName: modelData
-                                    width: 32
-                                    height: 32
-                                    radius: 16
-                                    color: Theme.getCatppuccinColor(themeName)
-                                    border.color: Theme.outline
-                                    border.width: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 2 : 1
-                                    scale: (Theme.currentThemeName === themeName && Theme.currentTheme !== Theme.dynamic) ? 1.1 : 1
-
-                                    Rectangle {
-                                        width: nameTextCat2.contentWidth + Theme.spacingS * 2
-                                        height: nameTextCat2.contentHeight + Theme.spacingXS * 2
-                                        color: Theme.surfaceContainer
-                                        radius: Theme.cornerRadius
-                                        anchors.bottom: parent.top
-                                        anchors.bottomMargin: Theme.spacingXS
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        visible: mouseAreaCat2.containsMouse
-
-                                        StyledText {
-                                            id: nameTextCat2
-                                            text: Theme.getCatppuccinVariantName(parent.parent.themeName)
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
-                                            anchors.centerIn: parent
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: mouseAreaCat2
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: Theme.switchTheme(parent.themeName)
-                                    }
-
-                                    Behavior on scale {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
-
-                                    Behavior on border.width {
-                                        NumberAnimation {
-                                            duration: Theme.shortDuration
-                                            easing.type: Theme.emphasizedEasing
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -392,7 +238,7 @@ Item {
                     Column {
                         width: parent.width
                         spacing: Theme.spacingM
-                        visible: Theme.currentTheme === Theme.dynamic
+                        visible: Theme.currentTheme === Theme.dynamic && Theme.currentThemeCategory !== "registry"
 
                         Row {
                             width: parent.width
@@ -454,12 +300,12 @@ Item {
                                 StyledText {
                                     text: {
                                         if (ToastService.wallpaperErrorStatus === "error")
-                                            return "Wallpaper Error";
+                                            return I18n.tr("Wallpaper Error", "wallpaper error status");
                                         if (ToastService.wallpaperErrorStatus === "matugen_missing")
-                                            return "Matugen Missing";
+                                            return I18n.tr("Matugen Missing", "matugen not found status");
                                         if (Theme.wallpaperPath)
                                             return Theme.wallpaperPath.split('/').pop();
-                                        return "No wallpaper selected";
+                                        return I18n.tr("No wallpaper selected", "no wallpaper status");
                                     }
                                     font.pixelSize: Theme.fontSizeLarge
                                     color: Theme.surfaceText
@@ -471,12 +317,12 @@ Item {
                                 StyledText {
                                     text: {
                                         if (ToastService.wallpaperErrorStatus === "error")
-                                            return "Wallpaper processing failed";
+                                            return I18n.tr("Wallpaper processing failed", "wallpaper processing error");
                                         if (ToastService.wallpaperErrorStatus === "matugen_missing")
-                                            return "Install matugen package for dynamic theming";
+                                            return I18n.tr("Install matugen package for dynamic theming", "matugen installation hint");
                                         if (Theme.wallpaperPath)
                                             return Theme.wallpaperPath;
-                                        return "Dynamic colors from wallpaper";
+                                        return I18n.tr("Dynamic colors from wallpaper", "dynamic colors description");
                                     }
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: (ToastService.wallpaperErrorStatus === "error" || ToastService.wallpaperErrorStatus === "matugen_missing") ? Theme.error : Theme.surfaceVariantText
@@ -524,7 +370,7 @@ Item {
                     Column {
                         width: parent.width
                         spacing: Theme.spacingM
-                        visible: Theme.currentThemeName === "custom"
+                        visible: Theme.currentThemeName === "custom" && Theme.currentThemeCategory !== "registry"
 
                         Row {
                             width: parent.width
@@ -545,7 +391,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
 
                                 StyledText {
-                                    text: SettingsData.customThemeFile ? SettingsData.customThemeFile.split('/').pop() : "No custom theme file"
+                                    text: SettingsData.customThemeFile ? SettingsData.customThemeFile.split('/').pop() : I18n.tr("No custom theme file", "no custom theme file status")
                                     font.pixelSize: Theme.fontSizeLarge
                                     color: Theme.surfaceText
                                     elide: Text.ElideMiddle
@@ -554,7 +400,7 @@ Item {
                                 }
 
                                 StyledText {
-                                    text: SettingsData.customThemeFile || "Click to select a custom theme JSON file"
+                                    text: SettingsData.customThemeFile || I18n.tr("Click to select a custom theme JSON file", "custom theme file hint")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     elide: Text.ElideMiddle
@@ -564,6 +410,402 @@ Item {
                             }
                         }
                     }
+
+                    Column {
+                        id: registrySection
+                        width: parent.width
+                        spacing: Theme.spacingM
+                        visible: Theme.currentThemeCategory === "registry"
+
+                        Grid {
+                            id: themeGrid
+                            property int cardWidth: registrySection.width < 350 ? 100 : 140
+                            property int cardHeight: registrySection.width < 350 ? 72 : 100
+                            columns: Math.max(1, Math.floor((registrySection.width + spacing) / (cardWidth + spacing)))
+                            spacing: Theme.spacingS
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: themeColorsTab.installedRegistryThemes.length > 0
+
+                            Repeater {
+                                model: themeColorsTab.installedRegistryThemes
+
+                                Rectangle {
+                                    id: themeCard
+                                    property bool isActive: Theme.currentThemeCategory === "registry" && Theme.currentThemeName === "custom" && SettingsData.customThemeFile && SettingsData.customThemeFile.endsWith((modelData.sourceDir || modelData.id) + "/theme.json")
+                                    property bool hasVariants: modelData.hasVariants || false
+                                    property var variants: modelData.variants || null
+                                    property string selectedVariant: hasVariants ? SettingsData.getRegistryThemeVariant(modelData.id, variants?.default || "") : ""
+                                    property string previewPath: {
+                                        const baseDir = Quickshell.env("HOME") + "/.config/DankMaterialShell/themes/" + (modelData.sourceDir || modelData.id);
+                                        const mode = Theme.isLightMode ? "light" : "dark";
+                                        if (hasVariants && selectedVariant)
+                                            return baseDir + "/preview-" + selectedVariant + "-" + mode + ".svg";
+                                        return baseDir + "/preview-" + mode + ".svg";
+                                    }
+                                    width: themeGrid.cardWidth
+                                    height: themeGrid.cardHeight
+                                    radius: Theme.cornerRadius
+                                    color: Theme.surfaceVariant
+                                    border.color: isActive ? Theme.primary : Theme.outline
+                                    border.width: isActive ? 2 : 1
+                                    scale: isActive ? 1.03 : 1
+
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: Theme.shortDuration
+                                            easing.type: Theme.emphasizedEasing
+                                        }
+                                    }
+
+                                    Image {
+                                        id: previewImage
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        source: "file://" + themeCard.previewPath
+                                        fillMode: Image.PreserveAspectFit
+                                        smooth: true
+                                        mipmap: true
+                                    }
+
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        name: "palette"
+                                        size: themeGrid.cardWidth < 120 ? 24 : 32
+                                        color: Theme.primary
+                                        visible: previewImage.status === Image.Error || previewImage.status === Image.Null
+                                    }
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        height: themeGrid.cardWidth < 120 ? 18 : 22
+                                        radius: Theme.cornerRadius
+                                        color: Qt.rgba(0, 0, 0, 0.6)
+
+                                        StyledText {
+                                            anchors.centerIn: parent
+                                            text: modelData.name
+                                            font.pixelSize: themeGrid.cardWidth < 120 ? Theme.fontSizeSmall - 2 : Theme.fontSizeSmall
+                                            color: "white"
+                                            font.weight: Font.Medium
+                                            elide: Text.ElideRight
+                                            width: parent.width - Theme.spacingXS * 2
+                                            horizontalAlignment: Text.AlignHCenter
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: themeGrid.cardWidth < 120 ? 2 : 4
+                                        width: themeGrid.cardWidth < 120 ? 16 : 20
+                                        height: width
+                                        radius: width / 2
+                                        color: Theme.primary
+                                        visible: themeCard.isActive
+
+                                        DankIcon {
+                                            anchors.centerIn: parent
+                                            name: "check"
+                                            size: themeGrid.cardWidth < 120 ? 10 : 14
+                                            color: Theme.surface
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.margins: themeGrid.cardWidth < 120 ? 2 : 4
+                                        width: themeGrid.cardWidth < 120 ? 16 : 20
+                                        height: width
+                                        radius: width / 2
+                                        color: Theme.secondary
+                                        visible: themeCard.hasVariants && !deleteButton.visible
+
+                                        StyledText {
+                                            anchors.centerIn: parent
+                                            text: {
+                                                if (themeCard.variants?.type === "multi")
+                                                    return themeCard.variants?.accents?.length || 0;
+                                                return themeCard.variants?.options?.length || 0;
+                                            }
+                                            font.pixelSize: themeGrid.cardWidth < 120 ? Theme.fontSizeSmall - 4 : Theme.fontSizeSmall - 2
+                                            color: Theme.surface
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: cardMouseArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            const themesDir = Quickshell.env("HOME") + "/.config/DankMaterialShell/themes";
+                                            const themePath = themesDir + "/" + (modelData.sourceDir || modelData.id) + "/theme.json";
+                                            SettingsData.set("customThemeFile", themePath);
+                                            Theme.switchTheme("custom", true, true);
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        id: deleteButton
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.margins: themeGrid.cardWidth < 120 ? 2 : 4
+                                        width: themeGrid.cardWidth < 120 ? 18 : 24
+                                        height: width
+                                        radius: width / 2
+                                        color: deleteMouseArea.containsMouse ? Theme.error : Qt.rgba(0, 0, 0, 0.6)
+                                        opacity: cardMouseArea.containsMouse || deleteMouseArea.containsMouse ? 1 : 0
+                                        visible: opacity > 0
+
+                                        Behavior on opacity {
+                                            NumberAnimation {
+                                                duration: Theme.shortDuration
+                                            }
+                                        }
+
+                                        DankIcon {
+                                            anchors.centerIn: parent
+                                            name: "close"
+                                            size: themeGrid.cardWidth < 120 ? 10 : 14
+                                            color: "white"
+                                        }
+
+                                        MouseArea {
+                                            id: deleteMouseArea
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                ToastService.showInfo(I18n.tr("Uninstalling: %1", "uninstallation progress").arg(modelData.name));
+                                                DMSService.uninstallTheme(modelData.id, response => {
+                                                    if (response.error) {
+                                                        ToastService.showError(I18n.tr("Uninstall failed: %1", "uninstallation error").arg(response.error));
+                                                        return;
+                                                    }
+                                                    ToastService.showInfo(I18n.tr("Uninstalled: %1", "uninstallation success").arg(modelData.name));
+                                                    DMSService.listInstalledThemes();
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column {
+                            id: variantSelector
+                            width: parent.width
+                            spacing: Theme.spacingS
+                            visible: activeThemeId !== "" && activeThemeVariants !== null && (isMultiVariant || (activeThemeVariants.options && activeThemeVariants.options.length > 0))
+
+                            property string activeThemeId: {
+                                if (Theme.currentThemeCategory !== "registry" || Theme.currentTheme !== "custom")
+                                    return "";
+                                for (var i = 0; i < themeColorsTab.installedRegistryThemes.length; i++) {
+                                    var t = themeColorsTab.installedRegistryThemes[i];
+                                    if (SettingsData.customThemeFile && SettingsData.customThemeFile.endsWith((t.sourceDir || t.id) + "/theme.json"))
+                                        return t.id;
+                                }
+                                return "";
+                            }
+                            property var activeThemeVariants: {
+                                if (!activeThemeId)
+                                    return null;
+                                for (var i = 0; i < themeColorsTab.installedRegistryThemes.length; i++) {
+                                    var t = themeColorsTab.installedRegistryThemes[i];
+                                    if (t.id === activeThemeId && t.hasVariants)
+                                        return t.variants;
+                                }
+                                return null;
+                            }
+                            property bool isMultiVariant: activeThemeVariants?.type === "multi"
+                            property string colorMode: Theme.isLightMode ? "light" : "dark"
+                            property var multiDefaults: {
+                                if (!isMultiVariant || !activeThemeVariants?.defaults)
+                                    return {};
+                                return activeThemeVariants.defaults[colorMode] || activeThemeVariants.defaults.dark || {};
+                            }
+                            property var storedMulti: activeThemeId ? SettingsData.getRegistryThemeMultiVariant(activeThemeId, multiDefaults) : multiDefaults
+                            property string selectedFlavor: storedMulti.flavor || multiDefaults.flavor || ""
+                            property string selectedAccent: storedMulti.accent || multiDefaults.accent || ""
+                            property var flavorOptions: {
+                                if (!isMultiVariant || !activeThemeVariants?.flavors)
+                                    return [];
+                                return activeThemeVariants.flavors.filter(f => f.mode === colorMode || f.mode === "both");
+                            }
+                            property var flavorNames: flavorOptions.map(f => f.name)
+                            property int flavorIndex: {
+                                for (var i = 0; i < flavorOptions.length; i++) {
+                                    if (flavorOptions[i].id === selectedFlavor)
+                                        return i;
+                                }
+                                return 0;
+                            }
+                            property string selectedVariant: activeThemeId ? SettingsData.getRegistryThemeVariant(activeThemeId, activeThemeVariants?.default || "") : ""
+                            property var variantNames: {
+                                if (!activeThemeVariants?.options)
+                                    return [];
+                                return activeThemeVariants.options.map(v => v.name);
+                            }
+                            property int selectedIndex: {
+                                if (!activeThemeVariants?.options || !selectedVariant)
+                                    return 0;
+                                for (var i = 0; i < activeThemeVariants.options.length; i++) {
+                                    if (activeThemeVariants.options[i].id === selectedVariant)
+                                        return i;
+                                }
+                                return 0;
+                            }
+
+                            Item {
+                                width: parent.width
+                                height: flavorButtonGroup.implicitHeight
+                                clip: true
+                                visible: variantSelector.isMultiVariant && variantSelector.flavorOptions.length > 1
+
+                                DankButtonGroup {
+                                    id: flavorButtonGroup
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    buttonPadding: parent.width < 400 ? Theme.spacingS : Theme.spacingL
+                                    minButtonWidth: parent.width < 400 ? 44 : 64
+                                    textSize: parent.width < 400 ? Theme.fontSizeSmall : Theme.fontSizeMedium
+                                    model: variantSelector.flavorNames
+                                    currentIndex: variantSelector.flavorIndex
+                                    selectionMode: "single"
+                                    onAnimationCompleted: {
+                                        if (currentIndex < 0 || currentIndex >= variantSelector.flavorOptions.length)
+                                            return;
+                                        const flavorId = variantSelector.flavorOptions[currentIndex]?.id;
+                                        if (!flavorId || flavorId === variantSelector.selectedFlavor)
+                                            return;
+                                        Theme.screenTransition();
+                                        SettingsData.setRegistryThemeMultiVariant(variantSelector.activeThemeId, flavorId, variantSelector.selectedAccent);
+                                    }
+                                }
+                            }
+
+                            Item {
+                                width: parent.width
+                                height: accentColorsGrid.implicitHeight
+                                visible: variantSelector.isMultiVariant && variantSelector.activeThemeVariants?.accents?.length > 0
+
+                                Grid {
+                                    id: accentColorsGrid
+                                    property int accentCount: variantSelector.activeThemeVariants?.accents?.length ?? 0
+                                    property int dotSize: parent.width < 300 ? 28 : 32
+                                    columns: accentCount > 0 ? Math.ceil(accentCount / 2) : 1
+                                    rowSpacing: Theme.spacingS
+                                    columnSpacing: Theme.spacingS
+                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                    Repeater {
+                                        model: variantSelector.activeThemeVariants?.accents || []
+
+                                        Rectangle {
+                                            required property var modelData
+                                            required property int index
+                                            property string accentId: modelData.id
+                                            property bool isSelected: accentId === variantSelector.selectedAccent
+                                            width: accentColorsGrid.dotSize
+                                            height: accentColorsGrid.dotSize
+                                            radius: width / 2
+                                            color: modelData.color || Theme.primary
+                                            border.color: Theme.outline
+                                            border.width: isSelected ? 2 : 1
+                                            scale: isSelected ? 1.1 : 1
+
+                                            Rectangle {
+                                                width: accentNameText.contentWidth + Theme.spacingS * 2
+                                                height: accentNameText.contentHeight + Theme.spacingXS * 2
+                                                color: Theme.surfaceContainer
+                                                radius: Theme.cornerRadius
+                                                anchors.bottom: parent.top
+                                                anchors.bottomMargin: Theme.spacingXS
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                visible: accentMouseArea.containsMouse
+
+                                                StyledText {
+                                                    id: accentNameText
+                                                    text: modelData.name
+                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    color: Theme.surfaceText
+                                                    anchors.centerIn: parent
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: accentMouseArea
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    if (parent.isSelected)
+                                                        return;
+                                                    Theme.screenTransition();
+                                                    SettingsData.setRegistryThemeMultiVariant(variantSelector.activeThemeId, variantSelector.selectedFlavor, parent.accentId);
+                                                }
+                                            }
+
+                                            Behavior on scale {
+                                                NumberAnimation {
+                                                    duration: Theme.shortDuration
+                                                    easing.type: Theme.emphasizedEasing
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Item {
+                                width: parent.width
+                                height: variantButtonGroup.implicitHeight
+                                clip: true
+                                visible: !variantSelector.isMultiVariant && variantSelector.variantNames.length > 0
+
+                                DankButtonGroup {
+                                    id: variantButtonGroup
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    buttonPadding: parent.width < 400 ? Theme.spacingS : Theme.spacingL
+                                    minButtonWidth: parent.width < 400 ? 44 : 64
+                                    textSize: parent.width < 400 ? Theme.fontSizeSmall : Theme.fontSizeMedium
+                                    model: variantSelector.variantNames
+                                    currentIndex: variantSelector.selectedIndex
+                                    selectionMode: "single"
+                                    onAnimationCompleted: {
+                                        if (currentIndex < 0 || !variantSelector.activeThemeVariants?.options)
+                                            return;
+                                        const variantId = variantSelector.activeThemeVariants.options[currentIndex]?.id;
+                                        if (!variantId || variantId === variantSelector.selectedVariant)
+                                            return;
+                                        Theme.screenTransition();
+                                        SettingsData.setRegistryThemeVariant(variantSelector.activeThemeId, variantId);
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledText {
+                            text: I18n.tr("No themes installed. Browse themes to install from the registry.", "no registry themes installed hint")
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                            wrapMode: Text.WordWrap
+                            width: parent.width
+                            visible: themeColorsTab.installedRegistryThemes.length === 0
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        DankButton {
+                            text: I18n.tr("Browse Themes", "browse themes button")
+                            iconName: "store"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            onClicked: themeBrowser.show()
+                        }
+                    }
                 }
             }
 
@@ -571,6 +813,7 @@ Item {
                 tab: "theme"
                 tags: ["light", "dark", "mode", "appearance"]
                 title: I18n.tr("Color Mode")
+                settingKey: "colorMode"
                 iconName: "contrast"
 
                 SettingsToggleRow {
@@ -591,6 +834,7 @@ Item {
                 tab: "theme"
                 tags: ["transparency", "opacity", "widget", "styling"]
                 title: I18n.tr("Widget Styling")
+                settingKey: "widgetStyling"
                 iconName: "opacity"
 
                 SettingsButtonGroupRow {
@@ -674,7 +918,81 @@ Item {
 
             SettingsCard {
                 tab: "theme"
+                tags: ["niri", "layout", "gaps", "radius", "window"]
+                title: I18n.tr("Niri Layout Overrides")
+                settingKey: "niriLayout"
+                iconName: "crop_square"
+                visible: CompositorService.isNiri
+
+                SettingsToggleRow {
+                    tab: "theme"
+                    tags: ["niri", "gaps", "override"]
+                    settingKey: "niriLayoutGapsOverrideEnabled"
+                    text: I18n.tr("Override Gaps")
+                    description: I18n.tr("Use custom gaps instead of bar spacing")
+                    checked: SettingsData.niriLayoutGapsOverride >= 0
+                    onToggled: checked => {
+                        if (checked) {
+                            const currentGaps = Math.max(4, (SettingsData.barConfigs[0]?.spacing ?? 4));
+                            SettingsData.set("niriLayoutGapsOverride", currentGaps);
+                            return;
+                        }
+                        SettingsData.set("niriLayoutGapsOverride", -1);
+                    }
+                }
+
+                SettingsSliderRow {
+                    tab: "theme"
+                    tags: ["niri", "gaps", "override"]
+                    settingKey: "niriLayoutGapsOverride"
+                    text: I18n.tr("Window Gaps")
+                    description: I18n.tr("Space between windows")
+                    visible: SettingsData.niriLayoutGapsOverride >= 0
+                    value: Math.max(0, SettingsData.niriLayoutGapsOverride)
+                    minimum: 0
+                    maximum: 50
+                    unit: "px"
+                    defaultValue: Math.max(4, (SettingsData.barConfigs[0]?.spacing ?? 4))
+                    onSliderValueChanged: newValue => SettingsData.set("niriLayoutGapsOverride", newValue)
+                }
+
+                SettingsToggleRow {
+                    tab: "theme"
+                    tags: ["niri", "radius", "override"]
+                    settingKey: "niriLayoutRadiusOverrideEnabled"
+                    text: I18n.tr("Override Corner Radius")
+                    description: I18n.tr("Use custom window radius instead of theme radius")
+                    checked: SettingsData.niriLayoutRadiusOverride >= 0
+                    onToggled: checked => {
+                        if (checked) {
+                            SettingsData.set("niriLayoutRadiusOverride", SettingsData.cornerRadius);
+                            return;
+                        }
+                        SettingsData.set("niriLayoutRadiusOverride", -1);
+                    }
+                }
+
+                SettingsSliderRow {
+                    tab: "theme"
+                    tags: ["niri", "radius", "override"]
+                    settingKey: "niriLayoutRadiusOverride"
+                    text: I18n.tr("Window Corner Radius")
+                    description: I18n.tr("Rounded corners for windows")
+                    visible: SettingsData.niriLayoutRadiusOverride >= 0
+                    value: Math.max(0, SettingsData.niriLayoutRadiusOverride)
+                    minimum: 0
+                    maximum: 100
+                    unit: "px"
+                    defaultValue: SettingsData.cornerRadius
+                    onSliderValueChanged: newValue => SettingsData.set("niriLayoutRadiusOverride", newValue)
+                }
+            }
+
+            SettingsCard {
+                tab: "theme"
                 tags: ["modal", "darken", "background", "overlay"]
+                title: I18n.tr("Modal Background")
+                settingKey: "modalBackground"
 
                 SettingsToggleRow {
                     tab: "theme"
@@ -691,6 +1009,7 @@ Item {
                 tab: "theme"
                 tags: ["applications", "portal", "dark", "terminal"]
                 title: I18n.tr("Applications")
+                settingKey: "applications"
                 iconName: "terminal"
 
                 SettingsToggleRow {
@@ -718,6 +1037,7 @@ Item {
                 tab: "theme"
                 tags: ["matugen", "templates", "theming"]
                 title: I18n.tr("Matugen Templates")
+                settingKey: "matugenTemplates"
                 iconName: "auto_awesome"
                 visible: Theme.matugenAvailable
 
@@ -809,6 +1129,17 @@ Item {
 
                 SettingsToggleRow {
                     tab: "theme"
+                    tags: ["matugen", "zenbrowser", "template"]
+                    settingKey: "matugenTemplateZenBrowser"
+                    text: "zenbrowser"
+                    description: ""
+                    visible: SettingsData.runDmsMatugenTemplates
+                    checked: SettingsData.matugenTemplateZenBrowser
+                    onToggled: checked => SettingsData.set("matugenTemplateZenBrowser", checked)
+                }
+
+                SettingsToggleRow {
+                    tab: "theme"
                     tags: ["matugen", "vesktop", "discord", "template"]
                     settingKey: "matugenTemplateVesktop"
                     text: "vesktop"
@@ -816,6 +1147,17 @@ Item {
                     visible: SettingsData.runDmsMatugenTemplates
                     checked: SettingsData.matugenTemplateVesktop
                     onToggled: checked => SettingsData.set("matugenTemplateVesktop", checked)
+                }
+
+                SettingsToggleRow {
+                    tab: "theme"
+                    tags: ["matugen", "equibop", "discord", "template"]
+                    settingKey: "matugenTemplateEquibop"
+                    text: "equibop"
+                    description: ""
+                    visible: SettingsData.runDmsMatugenTemplates
+                    checked: SettingsData.matugenTemplateEquibop
+                    onToggled: checked => SettingsData.set("matugenTemplateEquibop", checked)
                 }
 
                 SettingsToggleRow {
@@ -849,6 +1191,16 @@ Item {
                     visible: SettingsData.runDmsMatugenTemplates
                     checked: SettingsData.matugenTemplateFoot
                     onToggled: checked => SettingsData.set("matugenTemplateFoot", checked)
+                }
+                SettingsToggleRow {
+                    tab: "theme"
+                    tags: ["matugen", "neovim", "terminal", "template"]
+                    settingKey: "matugenTemplateNeovim"
+                    text: "neovim"
+                    description: "Requires lazy plugin manager"
+                    visible: SettingsData.runDmsMatugenTemplates
+                    checked: SettingsData.matugenTemplateNeovim
+                    onToggled: checked => SettingsData.set("matugenTemplateNeovim", checked)
                 }
 
                 SettingsToggleRow {
@@ -939,6 +1291,8 @@ Item {
             SettingsCard {
                 tab: "theme"
                 tags: ["icon", "theme", "system"]
+                title: I18n.tr("Icon Theme")
+                settingKey: "iconTheme"
 
                 SettingsDropdownRow {
                     tab: "theme"
@@ -964,6 +1318,7 @@ Item {
                 tab: "theme"
                 tags: ["system", "app", "theming", "gtk", "qt"]
                 title: I18n.tr("System App Theming")
+                settingKey: "systemAppTheming"
                 iconName: "extension"
                 visible: Theme.matugenAvailable
 
@@ -1079,5 +1434,9 @@ Item {
                 close();
             }
         }
+    }
+
+    ThemeBrowser {
+        id: themeBrowser
     }
 }

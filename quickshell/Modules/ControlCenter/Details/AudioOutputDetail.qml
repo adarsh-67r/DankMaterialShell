@@ -77,8 +77,10 @@ Rectangle {
                         return "volume_off";
                     let muted = AudioService.sink.audio.muted;
                     let volume = AudioService.sink.audio.volume;
-                    if (muted || volume === 0.0)
+                    if (muted)
                         return "volume_off";
+                    if (volume === 0.0)
+                        return "volume_mute";
                     if (volume <= 0.33)
                         return "volume_down";
                     if (volume <= 0.66)
@@ -211,7 +213,7 @@ Rectangle {
                             }
 
                             StyledText {
-                                text: modelData === AudioService.sink ? "Active" : "Available"
+                                text: modelData === AudioService.sink ? I18n.tr("Active") : I18n.tr("Available")
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
                                 elide: Text.ElideRight
@@ -251,7 +253,7 @@ Rectangle {
                             StyledText {
                                 text: {
                                     const isThisDevicePinned = (SettingsData.audioOutputDevicePins || {})["preferredOutput"] === modelData.name;
-                                    return isThisDevicePinned ? "Pinned" : "Pin";
+                                    return isThisDevicePinned ? I18n.tr("Pinned") : I18n.tr("Pin");
                                 }
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: {
@@ -417,8 +419,10 @@ Rectangle {
                                         let volume = modelData.audio.volume;
                                         let muted = modelData.audio.muted;
 
-                                        if (muted || volume === 0.0)
+                                        if (muted)
                                             return "volume_off";
+                                        if (volume === 0.0)
+                                            return "volume_mute";
                                         if (volume <= 0.33)
                                             return "volume_down";
                                         if (volume <= 0.66)

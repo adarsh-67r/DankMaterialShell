@@ -233,6 +233,7 @@ Item {
             fontScale: defaultBar.fontScale ?? 1.0,
             autoHide: defaultBar.autoHide ?? false,
             autoHideDelay: defaultBar.autoHideDelay ?? 250,
+            showOnWindowsOpen: defaultBar.showOnWindowsOpen ?? false,
             openOnOverview: defaultBar.openOnOverview ?? false,
             visible: defaultBar.visible ?? true,
             popupGapsAuto: defaultBar.popupGapsAuto ?? true,
@@ -296,6 +297,7 @@ Item {
 
         Column {
             id: mainColumn
+            topPadding: 4
             width: Math.min(550, parent.width - Theme.spacingL * 2)
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Theme.spacingXL
@@ -303,6 +305,7 @@ Item {
             SettingsCard {
                 iconName: "dashboard"
                 title: I18n.tr("Bar Configurations")
+                settingKey: "barConfigurations"
 
                 RowLayout {
                     width: parent.width
@@ -490,6 +493,7 @@ Item {
             SettingsCard {
                 iconName: "display_settings"
                 title: I18n.tr("Display Assignment")
+                settingKey: "barDisplay"
                 visible: selectedBarConfig?.enabled
 
                 StyledText {
@@ -593,6 +597,7 @@ Item {
             SettingsCard {
                 iconName: "vertical_align_center"
                 title: I18n.tr("Position")
+                settingKey: "barPosition"
                 visible: selectedBarConfig?.enabled
 
                 Item {
@@ -653,6 +658,7 @@ Item {
             SettingsCard {
                 iconName: "visibility_off"
                 title: I18n.tr("Visibility")
+                settingKey: "barVisibility"
                 visible: selectedBarConfig?.enabled
 
                 SettingsToggleRow {
@@ -700,6 +706,19 @@ Item {
                             property: "value"
                             value: selectedBarConfig?.autoHideDelay ?? 250
                             restoreMode: Binding.RestoreBinding
+                        }
+                    }
+
+                    SettingsToggleRow {
+                        width: parent.width - parent.leftPadding
+                        visible: CompositorService.isNiri || CompositorService.isHyprland
+                        text: I18n.tr("Hide When Windows Open")
+                        checked: selectedBarConfig?.showOnWindowsOpen ?? false
+                        onToggled: toggled => {
+                            SettingsData.updateBarConfig(selectedBarId, {
+                                showOnWindowsOpen: toggled
+                            });
+                            notifyHorizontalBarChange();
                         }
                     }
                 }
@@ -841,6 +860,7 @@ Item {
             SettingsCard {
                 iconName: "space_bar"
                 title: I18n.tr("Spacing")
+                settingKey: "barSpacing"
                 visible: selectedBarConfig?.enabled
 
                 SettingsSliderRow {
@@ -960,6 +980,7 @@ Item {
             SettingsCard {
                 iconName: "rounded_corner"
                 title: I18n.tr("Corners & Background")
+                settingKey: "barCorners"
                 visible: selectedBarConfig?.enabled
 
                 SettingsToggleRow {
@@ -1210,6 +1231,7 @@ Item {
             SettingsCard {
                 iconName: "opacity"
                 title: I18n.tr("Transparency")
+                settingKey: "barTransparency"
                 visible: selectedBarConfig?.enabled
 
                 SettingsSliderRow {

@@ -10,6 +10,7 @@ FloatingWindow {
     property string passwordInput: ""
     property var currentFlow: PolkitService.agent?.flow
     property bool isLoading: false
+    readonly property int inputFieldHeight: Theme.fontSizeMedium + Theme.spacingL * 2
     property int calculatedHeight: Math.max(240, headerRow.implicitHeight + mainColumn.implicitHeight + Theme.spacingM * 3)
 
     function focusPasswordField() {
@@ -107,6 +108,15 @@ FloatingWindow {
             event.accepted = true;
         }
 
+        MouseArea {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: headerRow.height + Theme.spacingM
+            onPressed: windowControls.tryStartMove()
+            onDoubleClicked: windowControls.tryToggleMaximize()
+        }
+
         Row {
             id: headerRow
             anchors.left: parent.left
@@ -117,7 +127,7 @@ FloatingWindow {
             anchors.topMargin: Theme.spacingM
 
             Column {
-                width: parent.width - 40
+                width: parent.width - 60
                 spacing: Theme.spacingXS
 
                 StyledText {
@@ -151,13 +161,25 @@ FloatingWindow {
                 }
             }
 
-            DankActionButton {
-                iconName: "close"
-                iconSize: Theme.iconSize - 4
-                iconColor: Theme.surfaceText
-                enabled: !isLoading
-                opacity: enabled ? 1 : 0.5
-                onClicked: cancelAuth()
+            Row {
+                spacing: Theme.spacingXS
+
+                DankActionButton {
+                    visible: windowControls.supported
+                    iconName: root.maximized ? "fullscreen_exit" : "fullscreen"
+                    iconSize: Theme.iconSize - 4
+                    iconColor: Theme.surfaceText
+                    onClicked: windowControls.tryToggleMaximize()
+                }
+
+                DankActionButton {
+                    iconName: "close"
+                    iconSize: Theme.iconSize - 4
+                    iconColor: Theme.surfaceText
+                    enabled: !isLoading
+                    opacity: enabled ? 1 : 0.5
+                    onClicked: cancelAuth()
+                }
             }
         }
 
@@ -181,7 +203,7 @@ FloatingWindow {
 
             Rectangle {
                 width: parent.width
-                height: 50
+                height: inputFieldHeight
                 radius: Theme.cornerRadius
                 color: Theme.surfaceHover
                 border.color: passwordField.activeFocus ? Theme.primary : Theme.outlineStrong
@@ -313,5 +335,10 @@ FloatingWindow {
                 }
             }
         }
+    }
+
+    FloatingWindowControls {
+        id: windowControls
+        targetWindow: root
     }
 }

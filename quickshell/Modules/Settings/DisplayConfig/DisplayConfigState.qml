@@ -106,8 +106,7 @@ Singleton {
             if (current[outputName])
                 continue;
 
-            const hasSettings = settings.colorManagement || settings.bitdepth ||
-                settings.sdrBrightness !== undefined || settings.sdrSaturation !== undefined;
+            const hasSettings = settings.colorManagement || settings.bitdepth || settings.sdrBrightness !== undefined || settings.sdrSaturation !== undefined;
             if (!hasSettings)
                 continue;
 
@@ -206,6 +205,27 @@ Singleton {
         const result = {};
         const lines = content.split("\n");
         for (const line of lines) {
+            const disableMatch = line.match(/^\s*monitor\s*=\s*([^,]+),\s*disable\s*$/);
+            if (disableMatch) {
+                const name = disableMatch[1].trim();
+                result[name] = {
+                    "name": name,
+                    "logical": {
+                        "x": 0,
+                        "y": 0,
+                        "scale": 1.0,
+                        "transform": "Normal"
+                    },
+                    "modes": [],
+                    "current_mode": -1,
+                    "vrr_enabled": false,
+                    "vrr_supported": false,
+                    "hyprlandSettings": {
+                        "disabled": true
+                    }
+                };
+                continue;
+            }
             const match = line.match(/^\s*monitor\s*=\s*([^,]+),\s*(\d+)x(\d+)@([\d.]+),\s*(-?\d+)x(-?\d+),\s*([\d.]+)/);
             if (!match)
                 continue;
@@ -239,6 +259,11 @@ Singleton {
             if (sdrSaturationMatch)
                 sdrSaturation = parseFloat(sdrSaturationMatch[1]);
 
+            let mirror = "";
+            const mirrorMatch = rest.match(/,\s*mirror,\s*([^,\s]+)/);
+            if (mirrorMatch)
+                mirror = mirrorMatch[1];
+
             result[name] = {
                 "name": name,
                 "logical": {
@@ -262,7 +287,8 @@ Singleton {
                     "colorManagement": cm,
                     "sdrBrightness": sdrBrightness,
                     "sdrSaturation": sdrSaturation
-                }
+                },
+                "mirror": mirror
             };
         }
         return result;
@@ -431,7 +457,7 @@ Singleton {
                 "serial": output.serialNumber || "",
                 "modes": normalizedModes,
                 "current_mode": normalizedModes.findIndex(m => m.id === output.currentMode?.id),
-                "vrr_supported": output.adaptiveSync !== undefined,
+                "vrr_supported": output.adaptiveSyncSupported ?? false,
                 "vrr_enabled": output.adaptiveSync === 1,
                 "logical": {
                     "x": output.x ?? 0,
@@ -574,6 +600,8 @@ Singleton {
                 result[outputName].logical.transform = changes.transform;
             if (changes.vrr !== undefined)
                 result[outputName].vrr_enabled = changes.vrr;
+            if (changes.mirror !== undefined)
+                result[outputName].mirror = changes.mirror;
         }
         return normalizeOutputPositions(result);
     }
@@ -835,6 +863,8 @@ Singleton {
 
         for (const outputId in pendingHyprlandChanges) {
             const changes = pendingHyprlandChanges[outputId];
+            if (changes.disabled !== undefined)
+                changeDescriptions.push(outputId + ": " + I18n.tr("Disabled") + " → " + (changes.disabled ? I18n.tr("Yes") : I18n.tr("No")));
             if (changes.bitdepth !== undefined)
                 changeDescriptions.push(outputId + ": " + I18n.tr("Bit Depth") + " → " + changes.bitdepth);
             if (changes.colorManagement !== undefined)
@@ -965,8 +995,7 @@ Singleton {
                 kdlContent += `    mode "${mode.width}x${mode.height}@${(mode.refresh_rate / 1000).toFixed(3)}"\n`;
             }
             if (output.logical) {
-                if (output.logical.scale && output.logical.scale !== 1.0)
-                    kdlContent += `    scale ${output.logical.scale}\n`;
+                kdlContent += `    scale ${output.logical.scale ?? 1.0}\n`;
                 if (output.logical.transform && output.logical.transform !== "Normal") {
                     const transformMap = {
                         "Normal": "normal",

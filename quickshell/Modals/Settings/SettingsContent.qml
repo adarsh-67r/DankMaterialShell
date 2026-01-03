@@ -5,6 +5,9 @@ import qs.Modules.Settings
 FocusScope {
     id: root
 
+    LayoutMirroring.enabled: I18n.isRtl
+    LayoutMirroring.childrenInherit: true
+
     property int currentIndex: 0
     property var parentModal: null
 
@@ -429,7 +432,9 @@ FocusScope {
             visible: active
             focus: active
 
-            sourceComponent: DesktopWidgetsTab {}
+            sourceComponent: DesktopWidgetsTab {
+                parentModal: root.parentModal
+            }
 
             onActiveChanged: {
                 if (active && item)

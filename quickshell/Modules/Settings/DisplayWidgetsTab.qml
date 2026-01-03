@@ -123,6 +123,7 @@ Item {
 
         Column {
             id: mainColumn
+            topPadding: 4
 
             width: Math.min(550, parent.width - Theme.spacingL * 2)
             anchors.horizontalCenter: parent.horizontalCenter
@@ -189,7 +190,7 @@ Item {
                                 spacing: Theme.spacingM
 
                                 StyledText {
-                                    text: I18n.tr("Available Screens (") + Quickshell.screens.length + ")"
+                                    text: I18n.tr("Available Screens (%1)").arg(Quickshell.screens.length)
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText

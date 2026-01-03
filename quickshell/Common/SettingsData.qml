@@ -14,7 +14,7 @@ import "settings/SettingsStore.js" as Store
 Singleton {
     id: root
 
-    readonly property int settingsConfigVersion: 3
+    readonly property int settingsConfigVersion: 5
 
     readonly property bool isGreeterMode: Quickshell.env("DMS_RUN_GREETER") === "1" || Quickshell.env("DMS_RUN_GREETER") === "true"
 
@@ -55,7 +55,12 @@ Singleton {
 
     property bool _loading: false
     property bool _pluginSettingsLoading: false
-    property bool hasTriedDefaultSettings: false
+    property bool _parseError: false
+    property bool _pluginParseError: false
+    property bool _hasLoaded: false
+    property bool _isReadOnly: false
+    property bool _hasUnsavedChanges: false
+    property var _loadedSettingsSnapshot: null
     property var pluginSettings: ({})
 
     property alias dankBarLeftWidgetsModel: leftWidgetsModel
@@ -63,7 +68,9 @@ Singleton {
     property alias dankBarRightWidgetsModel: rightWidgetsModel
 
     property string currentThemeName: "blue"
+    property string currentThemeCategory: "generic"
     property string customThemeFile: ""
+    property var registryThemeVariants: ({})
     property string matugenScheme: "scheme-tonal-spot"
     property bool runUserMatugenTemplates: true
     property string matugenTargetMonitor: ""
@@ -72,6 +79,8 @@ Singleton {
     property string widgetBackgroundColor: "sch"
     property string widgetColorMode: "default"
     property real cornerRadius: 12
+    property int niriLayoutGapsOverride: -1
+    property int niriLayoutRadiusOverride: -1
 
     property bool use24HourClock: true
     property bool showSeconds: false
@@ -105,9 +114,12 @@ Singleton {
     property bool controlCenterShowNetworkIcon: true
     property bool controlCenterShowBluetoothIcon: true
     property bool controlCenterShowAudioIcon: true
+    property bool controlCenterShowAudioPercent: false
     property bool controlCenterShowVpnIcon: true
     property bool controlCenterShowBrightnessIcon: false
+    property bool controlCenterShowBrightnessPercent: false
     property bool controlCenterShowMicIcon: false
+    property bool controlCenterShowMicPercent: true
     property bool controlCenterShowBatteryIcon: false
     property bool controlCenterShowPrinterIcon: false
     property bool showPrivacyButton: true
@@ -159,17 +171,21 @@ Singleton {
     ]
 
     property bool showWorkspaceIndex: false
+    property bool showWorkspaceName: false
     property bool showWorkspacePadding: false
     property bool workspaceScrolling: false
     property bool showWorkspaceApps: false
+    property bool groupWorkspaceApps: true
     property int maxWorkspaceIcons: 3
     property bool workspacesPerMonitor: true
     property bool showOccupiedWorkspacesOnly: false
+    property bool reverseScrolling: false
     property bool dwlShowAllTags: false
     property var workspaceNameIcons: ({})
     property bool waveProgressEnabled: true
     property bool scrollTitleEnabled: true
     property bool audioVisualizerEnabled: true
+    property string audioScrollMode: "volume"
     property bool clockCompactMode: false
     property bool focusedWindowCompactMode: false
     property bool runningAppsCompactMode: true
@@ -190,8 +206,10 @@ Singleton {
     property bool spotlightCloseNiriOverview: true
     property bool niriOverviewOverlayEnabled: true
 
-    property string weatherLocation: "New York, NY"
-    property string weatherCoordinates: "40.7128,-74.0060"
+    property string _legacyWeatherLocation: "New York, NY"
+    property string _legacyWeatherCoordinates: "40.7128,-74.0060"
+    readonly property string weatherLocation: SessionData.weatherLocation
+    readonly property string weatherCoordinates: SessionData.weatherCoordinates
     property bool useAutoLocation: false
     property bool weatherEnabled: true
 
@@ -255,6 +273,7 @@ Singleton {
     property int batterySuspendTimeout: 0
     property int batterySuspendBehavior: SettingsData.SuspendBehavior.Suspend
     property string batteryProfileName: ""
+    property int batteryChargeLimit: 100
     property bool lockBeforeSuspend: false
     property bool loginctlLockIntegration: true
     property bool fadeToLockEnabled: false
@@ -278,10 +297,13 @@ Singleton {
     property bool matugenTemplateQt6ct: true
     property bool matugenTemplateFirefox: true
     property bool matugenTemplatePywalfox: true
+    property bool matugenTemplateZenBrowser: true
     property bool matugenTemplateVesktop: true
+    property bool matugenTemplateEquibop: true
     property bool matugenTemplateGhostty: true
     property bool matugenTemplateKitty: true
     property bool matugenTemplateFoot: true
+    property bool matugenTemplateNeovim: true
     property bool matugenTemplateAlacritty: true
     property bool matugenTemplateWezterm: true
     property bool matugenTemplateDgop: true
@@ -302,6 +324,7 @@ Singleton {
     property string dockBorderColor: "surfaceText"
     property real dockBorderOpacity: 1.0
     property int dockBorderThickness: 1
+    property bool dockIsolateDisplays: false
 
     property bool notificationOverlayEnabled: false
     property int overviewRows: 2
@@ -395,6 +418,7 @@ Singleton {
             "fontScale": 1.0,
             "autoHide": false,
             "autoHideDelay": 250,
+            "showOnWindowsOpen": false,
             "openOnOverview": false,
             "visible": true,
             "popupGapsAuto": true,
@@ -413,6 +437,7 @@ Singleton {
     property color desktopClockCustomColor: "#ffffff"
     property bool desktopClockShowDate: true
     property bool desktopClockShowAnalogNumbers: false
+    property bool desktopClockShowAnalogSeconds: true
     property real desktopClockX: -1
     property real desktopClockY: -1
     property real desktopClockWidth: 280
@@ -446,6 +471,22 @@ Singleton {
     property var systemMonitorDisplayPreferences: ["all"]
     property var systemMonitorVariants: []
     property var desktopWidgetPositions: ({})
+    property var desktopWidgetGridSettings: ({})
+    property var desktopWidgetInstances: []
+
+    function getDesktopWidgetGridSetting(screenKey, property, defaultValue) {
+        const val = desktopWidgetGridSettings?.[screenKey]?.[property];
+        return val !== undefined ? val : defaultValue;
+    }
+
+    function setDesktopWidgetGridSetting(screenKey, property, value) {
+        const allSettings = JSON.parse(JSON.stringify(desktopWidgetGridSettings || {}));
+        if (!allSettings[screenKey])
+            allSettings[screenKey] = {};
+        allSettings[screenKey][property] = value;
+        desktopWidgetGridSettings = allSettings;
+        saveSettings();
+    }
 
     function getDesktopWidgetPosition(pluginId, screenKey, property, defaultValue) {
         const pos = desktopWidgetPositions?.[pluginId]?.[screenKey]?.[property];
@@ -528,6 +569,93 @@ Singleton {
         };
     }
 
+    function createDesktopWidgetInstance(widgetType, name, config) {
+        const id = "dw_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+        const instance = {
+            id: id,
+            widgetType: widgetType,
+            name: name || widgetType,
+            enabled: true,
+            config: config || {},
+            positions: {}
+        };
+        const instances = JSON.parse(JSON.stringify(desktopWidgetInstances || []));
+        instances.push(instance);
+        desktopWidgetInstances = instances;
+        saveSettings();
+        return instance;
+    }
+
+    function updateDesktopWidgetInstance(instanceId, updates) {
+        const instances = JSON.parse(JSON.stringify(desktopWidgetInstances || []));
+        const idx = instances.findIndex(inst => inst.id === instanceId);
+        if (idx === -1)
+            return;
+        Object.assign(instances[idx], updates);
+        desktopWidgetInstances = instances;
+        saveSettings();
+    }
+
+    function updateDesktopWidgetInstanceConfig(instanceId, configUpdates) {
+        const instances = JSON.parse(JSON.stringify(desktopWidgetInstances || []));
+        const idx = instances.findIndex(inst => inst.id === instanceId);
+        if (idx === -1)
+            return;
+        instances[idx].config = Object.assign({}, instances[idx].config || {}, configUpdates);
+        desktopWidgetInstances = instances;
+        saveSettings();
+    }
+
+    function updateDesktopWidgetInstancePosition(instanceId, screenKey, positionUpdates) {
+        const instances = JSON.parse(JSON.stringify(desktopWidgetInstances || []));
+        const idx = instances.findIndex(inst => inst.id === instanceId);
+        if (idx === -1)
+            return;
+        if (!instances[idx].positions)
+            instances[idx].positions = {};
+        instances[idx].positions[screenKey] = Object.assign({}, instances[idx].positions[screenKey] || {}, positionUpdates);
+        desktopWidgetInstances = instances;
+        saveSettings();
+    }
+
+    function removeDesktopWidgetInstance(instanceId) {
+        const instances = (desktopWidgetInstances || []).filter(inst => inst.id !== instanceId);
+        desktopWidgetInstances = instances;
+        saveSettings();
+    }
+
+    function duplicateDesktopWidgetInstance(instanceId) {
+        const source = getDesktopWidgetInstance(instanceId);
+        if (!source)
+            return null;
+        const newId = "dw_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+        const instance = {
+            id: newId,
+            widgetType: source.widgetType,
+            name: source.name + " (Copy)",
+            enabled: source.enabled,
+            config: JSON.parse(JSON.stringify(source.config || {})),
+            positions: {}
+        };
+        const instances = JSON.parse(JSON.stringify(desktopWidgetInstances || []));
+        instances.push(instance);
+        desktopWidgetInstances = instances;
+        saveSettings();
+        return instance;
+    }
+
+    function getDesktopWidgetInstance(instanceId) {
+        return (desktopWidgetInstances || []).find(inst => inst.id === instanceId) || null;
+    }
+
+    function getDesktopWidgetInstancesOfType(widgetType) {
+        return (desktopWidgetInstances || []).filter(inst => inst.widgetType === widgetType);
+    }
+
+    function getEnabledDesktopWidgetInstances() {
+        return (desktopWidgetInstances || []).filter(inst => inst.enabled);
+    }
+
     signal forceDankBarLayoutRefresh
     signal forceDockLayoutRefresh
     signal widgetDataChanged
@@ -545,10 +673,12 @@ Singleton {
 
     function applyStoredTheme() {
         if (typeof Theme !== "undefined") {
+            Theme.currentThemeCategory = currentThemeCategory;
             Theme.switchTheme(currentThemeName, false, false);
         } else {
             Qt.callLater(function () {
                 if (typeof Theme !== "undefined") {
+                    Theme.currentThemeCategory = currentThemeCategory;
                     Theme.switchTheme(currentThemeName, false, false);
                 }
             });
@@ -651,6 +781,10 @@ Singleton {
 
     function loadSettings() {
         _loading = true;
+        _parseError = false;
+        _hasUnsavedChanges = false;
+        _pendingMigration = null;
+
         try {
             const txt = settingsFile.text();
             let obj = (txt && txt.trim()) ? JSON.parse(txt) : null;
@@ -659,24 +793,63 @@ Singleton {
             if (oldVersion < settingsConfigVersion) {
                 const migrated = Store.migrateToVersion(obj, settingsConfigVersion);
                 if (migrated) {
-                    settingsFile.setText(JSON.stringify(migrated, null, 2));
+                    _pendingMigration = migrated;
                     obj = migrated;
                 }
             }
 
             Store.parse(root, obj);
+
+            if (obj?.weatherLocation !== undefined)
+                _legacyWeatherLocation = obj.weatherLocation;
+            if (obj?.weatherCoordinates !== undefined)
+                _legacyWeatherCoordinates = obj.weatherCoordinates;
+
+            _loadedSettingsSnapshot = JSON.stringify(Store.toJson(root));
+            _hasLoaded = true;
             applyStoredTheme();
             applyStoredIconTheme();
-            Processes.detectIcons();
             Processes.detectQtTools();
+
+            _checkSettingsWritable();
         } catch (e) {
-            console.warn("SettingsData: Failed to load settings:", e.message);
+            _parseError = true;
+            const msg = e.message;
+            console.error("SettingsData: Failed to parse settings.json - file will not be overwritten. Error:", msg);
+            Qt.callLater(() => ToastService.showError(I18n.tr("Failed to parse settings.json"), msg));
             applyStoredTheme();
             applyStoredIconTheme();
         } finally {
             _loading = false;
         }
         loadPluginSettings();
+    }
+
+    property var _pendingMigration: null
+
+    function _checkSettingsWritable() {
+        settingsWritableCheckProcess.running = true;
+    }
+
+    function _onWritableCheckComplete(writable) {
+        _isReadOnly = !writable;
+        if (_isReadOnly) {
+            console.info("SettingsData: settings.json is read-only (NixOS home-manager mode)");
+        } else if (_pendingMigration) {
+            settingsFile.setText(JSON.stringify(_pendingMigration, null, 2));
+        }
+        _pendingMigration = null;
+    }
+
+    function _checkForUnsavedChanges() {
+        if (!_hasLoaded || !_loadedSettingsSnapshot)
+            return false;
+        const current = JSON.stringify(Store.toJson(root));
+        return current !== _loadedSettingsSnapshot;
+    }
+
+    function getCurrentSettingsJson() {
+        return JSON.stringify(Store.toJson(root), null, 2);
     }
 
     function loadPluginSettings() {
@@ -687,6 +860,7 @@ Singleton {
 
     function parsePluginSettings(content) {
         _pluginSettingsLoading = true;
+        _pluginParseError = false;
         try {
             if (content && content.trim()) {
                 pluginSettings = JSON.parse(content);
@@ -694,7 +868,10 @@ Singleton {
                 pluginSettings = {};
             }
         } catch (e) {
-            console.warn("SettingsData: Failed to parse plugin settings:", e.message);
+            _pluginParseError = true;
+            const msg = e.message;
+            console.error("SettingsData: Failed to parse plugin_settings.json - file will not be overwritten. Error:", msg);
+            Qt.callLater(() => ToastService.showError(I18n.tr("Failed to parse plugin_settings.json"), msg));
             pluginSettings = {};
         } finally {
             _pluginSettingsLoading = false;
@@ -702,19 +879,58 @@ Singleton {
     }
 
     function saveSettings() {
-        if (_loading)
+        if (_loading || _parseError || !_hasLoaded)
             return;
+        if (_isReadOnly) {
+            _hasUnsavedChanges = _checkForUnsavedChanges();
+            return;
+        }
         settingsFile.setText(JSON.stringify(Store.toJson(root), null, 2));
     }
 
     function savePluginSettings() {
-        if (_pluginSettingsLoading)
+        if (_pluginSettingsLoading || _pluginParseError)
             return;
         pluginSettingsFile.setText(JSON.stringify(pluginSettings, null, 2));
     }
 
     function detectAvailableIconThemes() {
-        Processes.detectIcons();
+        const xdgDataDirs = Quickshell.env("XDG_DATA_DIRS") || "";
+        const localData = Paths.strip(StandardPaths.writableLocation(StandardPaths.GenericDataLocation));
+        const homeDir = Paths.strip(StandardPaths.writableLocation(StandardPaths.HomeLocation));
+
+        const dataDirs = xdgDataDirs.trim() !== "" ? xdgDataDirs.split(":").concat([localData]) : ["/usr/share", "/usr/local/share", localData];
+
+        const iconPaths = dataDirs.map(d => d + "/icons").concat([homeDir + "/.icons"]);
+        const pathsArg = iconPaths.join(" ");
+
+        const script = `
+            echo "SYSDEFAULT:$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | sed "s/'//g" || echo '')"
+            for dir in ${pathsArg}; do
+                [ -d "$dir" ] || continue
+                for theme in "$dir"/*/; do
+                    [ -d "$theme" ] || continue
+                    basename "$theme"
+                done
+            done | grep -v '^icons$' | grep -v '^default$' | grep -v '^hicolor$' | grep -v '^locolor$' | sort -u
+        `;
+
+        Proc.runCommand("detectIconThemes", ["sh", "-c", script], (output, exitCode) => {
+            const themes = ["System Default"];
+            if (output && output.trim()) {
+                const lines = output.trim().split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line.startsWith("SYSDEFAULT:")) {
+                        systemDefaultIconTheme = line.substring(11).trim();
+                        continue;
+                    }
+                    if (line)
+                        themes.push(line);
+                }
+            }
+            availableIconThemes = themes;
+        });
     }
 
     function getEffectiveTimeFormat() {
@@ -778,15 +994,14 @@ Singleton {
         return barHeight + spacing + bottomGap - gothOffset + Theme.popupDistance;
     }
 
-    function getPopupTriggerPosition(globalPos, screen, barThickness, widgetWidth, barSpacing, barPosition, barConfig) {
-        const screenX = screen ? screen.x : 0;
-        const screenY = screen ? screen.y : 0;
-        const relativeX = globalPos.x - screenX;
-        const relativeY = globalPos.y - screenY;
+    function getPopupTriggerPosition(pos, screen, barThickness, widgetWidth, barSpacing, barPosition, barConfig) {
+        const relativeX = pos.x;
+        const relativeY = pos.y;
         const defaultBar = barConfigs[0] || getBarConfig("default");
         const spacing = barSpacing !== undefined ? barSpacing : (defaultBar?.spacing ?? 4);
         const position = barPosition !== undefined ? barPosition : (defaultBar?.position ?? SettingsData.Position.Top);
-        const bottomGap = barConfig ? (barConfig.bottomGap !== undefined ? barConfig.bottomGap : (defaultBar?.bottomGap ?? 0)) : (defaultBar?.bottomGap ?? 0);
+        const rawBottomGap = barConfig ? (barConfig.bottomGap !== undefined ? barConfig.bottomGap : (defaultBar?.bottomGap ?? 0)) : (defaultBar?.bottomGap ?? 0);
+        const bottomGap = Math.max(0, rawBottomGap);
 
         const useAutoGaps = (barConfig && barConfig.popupGapsAuto !== undefined) ? barConfig.popupGapsAuto : (defaultBar?.popupGapsAuto ?? true);
         const manualGapValue = (barConfig && barConfig.popupGapsManual !== undefined) ? barConfig.popupGapsManual : (defaultBar?.popupGapsManual ?? 4);
@@ -1037,7 +1252,7 @@ Singleton {
         updateBarConfigs();
 
         if (positionChanged) {
-            NotificationService.clearAllPopups();
+            NotificationService.dismissAllPopups();
         }
     }
 
@@ -1182,7 +1397,7 @@ Singleton {
     }
 
     function sendTestNotifications() {
-        NotificationService.clearAllPopups();
+        NotificationService.dismissAllPopups();
         sendTestNotification(0);
         testNotifTimer1.start();
         testNotifTimer2.start();
@@ -1234,9 +1449,7 @@ Singleton {
     }
 
     function setWeatherLocation(displayName, coordinates) {
-        weatherLocation = displayName;
-        weatherCoordinates = coordinates;
-        saveSettings();
+        SessionData.setWeatherLocation(displayName, coordinates);
     }
 
     function setIconTheme(themeName) {
@@ -1427,6 +1640,41 @@ Singleton {
         return workspaceNameIcons[workspaceName] || null;
     }
 
+    function getRegistryThemeVariant(themeId, defaultVariant) {
+        var stored = registryThemeVariants[themeId];
+        if (typeof stored === "string")
+            return stored || defaultVariant || "";
+        return defaultVariant || "";
+    }
+
+    function setRegistryThemeVariant(themeId, variantId) {
+        var variants = JSON.parse(JSON.stringify(registryThemeVariants));
+        variants[themeId] = variantId;
+        registryThemeVariants = variants;
+        saveSettings();
+        if (typeof Theme !== "undefined")
+            Theme.reloadCustomThemeVariant();
+    }
+
+    function getRegistryThemeMultiVariant(themeId, defaults) {
+        var stored = registryThemeVariants[themeId];
+        if (stored && typeof stored === "object")
+            return stored;
+        return defaults || {};
+    }
+
+    function setRegistryThemeMultiVariant(themeId, flavor, accent) {
+        var variants = JSON.parse(JSON.stringify(registryThemeVariants));
+        variants[themeId] = {
+            flavor: flavor,
+            accent: accent
+        };
+        registryThemeVariants = variants;
+        saveSettings();
+        if (typeof Theme !== "undefined")
+            Theme.reloadCustomThemeVariant();
+    }
+
     function toggleDankBarVisible() {
         const defaultBar = barConfigs[0] || getBarConfig("default");
         if (defaultBar) {
@@ -1596,22 +1844,40 @@ Singleton {
         atomicWrites: true
         watchChanges: !isGreeterMode
         onLoaded: {
-            if (!isGreeterMode) {
-                try {
-                    const txt = settingsFile.text();
-                    const obj = (txt && txt.trim()) ? JSON.parse(txt) : null;
-                    Store.parse(root, obj);
-                } catch (e) {
-                    console.warn("SettingsData: Failed to reload settings:", e.message);
+            if (isGreeterMode)
+                return;
+            _loading = true;
+            _hasUnsavedChanges = false;
+            try {
+                const txt = settingsFile.text();
+                if (!txt || !txt.trim()) {
+                    _parseError = true;
+                    return;
                 }
-                hasTriedDefaultSettings = false;
+                const obj = JSON.parse(txt);
+                _parseError = false;
+                Store.parse(root, obj);
+
+                if (obj.weatherLocation !== undefined)
+                    _legacyWeatherLocation = obj.weatherLocation;
+                if (obj.weatherCoordinates !== undefined)
+                    _legacyWeatherCoordinates = obj.weatherCoordinates;
+
+                _loadedSettingsSnapshot = JSON.stringify(Store.toJson(root));
+                _hasLoaded = true;
+                applyStoredTheme();
+                applyStoredIconTheme();
+            } catch (e) {
+                _parseError = true;
+                const msg = e.message;
+                console.error("SettingsData: Failed to reload settings.json - file will not be overwritten. Error:", msg);
+                Qt.callLater(() => ToastService.showError(I18n.tr("Failed to parse settings.json"), msg));
+            } finally {
+                _loading = false;
             }
         }
         onLoadFailed: error => {
-            if (!isGreeterMode && !hasTriedDefaultSettings) {
-                hasTriedDefaultSettings = true;
-                Processes.checkDefaultSettings();
-            } else if (!isGreeterMode) {
+            if (!isGreeterMode) {
                 applyStoredTheme();
             }
         }
@@ -1638,4 +1904,20 @@ Singleton {
     }
 
     property bool pluginSettingsFileExists: false
+
+    Process {
+        id: settingsWritableCheckProcess
+
+        property string settingsPath: Paths.strip(settingsFile.path)
+
+        command: ["sh", "-c", "[ ! -f \"" + settingsPath + "\" ] || [ -w \"" + settingsPath + "\" ] && echo 'writable' || echo 'readonly'"]
+        running: false
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const result = text.trim();
+                root._onWritableCheckComplete(result === "writable");
+            }
+        }
+    }
 }
